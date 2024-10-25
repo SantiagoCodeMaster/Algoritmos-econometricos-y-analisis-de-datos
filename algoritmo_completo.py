@@ -1,17 +1,27 @@
 # Importamos librerías
+
 import conexion_proyect
 import pandas as pd
 import tensorflow as tf
 import numpy as np
-from sklearn.linear_model import Lasso
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.stattools import kpss
+from statsmodels.tsa.stattools import adfuller
 from keras.models import Sequential
 from keras.layers import LSTM, Dense
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LassoCV, Lasso
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import mean_squared_error, r2_score
+from pmdarima import auto_arima
+from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
+import warnings
+warnings.filterwarnings("ignore")
+
 
 
 # Obtenemos los datos
@@ -76,122 +86,178 @@ pd.set_option('display.max_colwidth', None)  # Muestra el contenido completo de 
 
 # Eliminar columnas con solo valores nulos
 df_completo = df_completo.drop(columns=['id_empresa_ef', 'id_empresa_p', 'id_empresa_m', 'id_empresa_i','id_estado','id_macro','id_patrimonio','id_iug','id_indicador'])
+#empezamos la seleccion de caracteristicas con el modelo lasso
+# Filtrar las columnas de tipo datetime
+date_columns = df_completo.select_dtypes(include=['datetime']).columns
+df_sin_fechas = df_completo.drop(columns=date_columns)
 
+# Inicializar un diccionario para almacenar los resultados
+resultados = {}
 
-numeric_columns = df_completo.columns[1:]  # Esto selecciona todas las columnas desde la segunda
+# Definir un rango de valores para alpha
+alphas = np.logspace(-3, 0, 100)  # Esto genera 100 valores de alpha entre 1e-3 y 1e0
 
-# Función para convertir a numérico y manejar errores
-def to_numeric(series):
-    return pd.to_numeric(series, errors='coerce')  # Usa 'coerce' para convertir valores no convertibles a NaN
+# Iterar sobre cada variable objetivo (columnas), excluyendo las fechas
+for target_column in df_sin_fechas.columns:
+    # Eliminar la columna objetivo actual de las características (X)
+    X = df_sin_fechas.drop(columns=[target_column])  # Características
+    y = df_sin_fechas[target_column]  # Variable objetivo actual
 
-# Aplicamos la conversión a las columnas numéricas
-df_completo= df_completo.copy()  # Hacemos una copia del DataFrame original para limpiar
-df_completo[numeric_columns] = df_completo[numeric_columns].apply(to_numeric)
+    # Dividir el conjunto de datos en conjunto de entrenamiento y prueba
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
+    # Estandarizar las características
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
 
+    # Ajustar el modelo Lasso usando validación cruzada con un rango de valores de alpha
+    lasso_cv = LassoCV(alphas=alphas, cv=5, random_state=42, max_iter=10000).fit(X_train_scaled, y_train)
 
-# Lista de columnas sin las que contienen "id"
-columnas = ['efectivo_equivalentes', 'deudores_comerciales', 'inventarios', 'activos_biologicos',
-            'otros_activos_corrientes', 'activos_no_corrientes_venta', 'deudores_comerciales_no_corriente',
-            'inversiones_asociadas_negocios', 'propiedades_planta_equipo', 'activos_por_derechos',
-            'propiedades_inversion', 'plusvalia', 'otros_activos_intangibles', 'activo_por_impuesto_diferido',
-            'otros_activos_no_corrientes', 'obligaciones_financieras_corrientes', 'pasivos_por_derecho_corriente',
-            'proveedores_cuentas_pagar_corriente', 'impuestos_por_pagar_corriente', 'pasivo_beneficios_empleados_corriente',
-            'provisiones_corriente', 'obligaciones_financieras_no_corriente', 'pasivos_por_derecho_no_corriente',
-            'proveedores_cuentas_pagar_no_corriente', 'pasivo_beneficios_empleados_no_corriente',
-            'pasivo_por_impuesto_diferido', 'provisiones_no_corriente', 'pib', 'inflacion', 'tasa_interes',
-            'tasa_desempleo', 'capital_emitido', 'prima_emision_capital', 'reservas_utilidades_acumuladas',
-            'otro_resultado_integral', 'utilidad_periodo', 'patrimonio_atributable_controladoras',
-            'participaciones_no_controladoras', 'costos_venta', 'utilidad_bruta', 'gastos_administracion',
-            'gastos_venta', 'gastos_produccion', 'diferencia_cambio_activos_pasivos', 'otros_ingresos_netos',
-            'utilidad_operativa', 'ingresos_financieros', 'gastos_financieros', 'dividendos',
-            'diferencia_cambio_activos_pasivos_no_operativos', 'participacion_asociadas_negocios',
-            'utilidad_antes_impuestos', 'impuesto_renta_corriente', 'impuesto_renta_diferido',
-            'utilidad_periodo_operaciones_continuadas', 'operaciones_discontinuadas', 'utilidad_neta_periodo',
-            'razon_corriente', 'kwn', 'prueba_acida', 'rotacion_ctas_x_cobrar', 'rotacion_inventarios',
-            'ciclo_operacion', 'rotacion_proveedores', 'ciclo_caja', 'rotacion_activos',
-            'rentabilidad_operativa', 'roi', 'rentabilidad_patrimonio', 'margen_utilidad_bruta',
-            'margen_utilidad_operacional', 'margen_utilidad_antes_impuestos', 'margen_utilidad_neta',
-            'nivel_endeudamiento', 'nivel_endeudamiento_corto_plazo', 'nivel_endeudamiento_largo_plazo',
-            'nivel_apalancamiento', 'cobertura_intereses', 'cobertura_deuda', 'costo_pasivo_total',
-            'costo_deuda_financiera', 'costo_patrimonio']
+    # Extraer el mejor valor de alpha
+    best_alpha = lasso_cv.alpha_
+    #print(f"Mejor valor de alpha para la columna {target_column}: {best_alpha}")
 
+    # Ajustar el modelo Lasso con el mejor valor de alpha encontrado
+    lasso = Lasso(alpha=best_alpha, max_iter=100000, tol=0.0001)
+    lasso.fit(X_train_scaled, y_train)
 
-# Convertir columnas a numéricas
-for col in columnas:
-    df_completo[col] = pd.to_numeric(df_completo[col], errors='coerce')
+    # Obtener los coeficientes
+    coeficientes = pd.Series(lasso.coef_, index=X.columns)
 
-# Verificar si hay NaN
-nan_counts = df_completo[columnas].isnull().sum()
+    # Filtrar solo los coeficientes no nulos (aquellos seleccionados por LASSO)
+    coeficientes_no_nulos = coeficientes[coeficientes != 0]
 
+    # Guardar resultados para la columna actual
+    resultados[target_column] = {
+        'alpha': best_alpha,
+        'coeficientes': coeficientes_no_nulos,
+        'numero_variables_seleccionadas': len(coeficientes_no_nulos)
+    }
 
-# Comprobar valores únicos en las columnas que generaron NaN
-for col in columnas:
-    if nan_counts[col] > 0:
-        print(f"Valores únicos en {col} (conversión fallida):")
-        print(df[col].unique())
+    #print(f"Variables seleccionadas por LASSO para {target_column}: {coeficientes_no_nulos.index.tolist()}")
+
+# Convertir el diccionario de resultados en un DataFrame para una mejor visualización
+resultados_df = pd.DataFrame(resultados).T
+
+# Añadir las columnas de fechas nuevamente al DataFrame final
+resultados_df['fecha'] = df_completo[date_columns].iloc[:, 0]  # Asumiendo que hay una sola columna de fecha
+
+# Generar un nuevo DataFrame solo con las variables seleccionadas por LASSO
+# Primero, identificamos todas las variables seleccionadas en algún momento
+variables_seleccionadas = set()
+
+for target_column, resultado in resultados.items():
+    variables_seleccionadas.update(resultado['coeficientes'].index)
+
+# Crear un DataFrame nuevo solo con las variables seleccionadas
+df_seleccionado = df_sin_fechas[list(variables_seleccionadas)]
+
+# Añadir la columna de fecha al nuevo DataFrame
+df_completo = pd.concat([df_seleccionado, df_completo[date_columns]], axis=1)
+print(df_completo)
 
 #Empezamos el MODELO ARIMA
+df_completo['fecha'] = pd.to_datetime(df_completo['fecha'])
+df_completo.set_index('fecha', inplace=True)
+
+# Asegúrate de que los datos son de frecuencia mensual (MS) o la que necesites
+df_completo = df_completo.asfreq('MS')
 
 
-# creamos el el modelo
-df_completo.set_index('fecha', inplace=True)  # Aseguramos que la columna de fecha sea el índice
-df_completo = df_completo.asfreq('MS')  # Establecemos la frecuencia de los datos de forma mensual
-
-# Desplazamiento de ceros: Añadimos un pequeño valor constante (por ejemplo, 0.01) para evitar problemas con log(0)
-shift_value = 0.01  # Este valor puede ser ajustado según convenga
-df_completo[columnas] = df_completo[columnas] + shift_value
-
-
-# Definir la función para verificar estacionaridad usando KPSS
-def verificar_estacionaridad_kpss(serie):
-    resultado = kpss(serie, regression='c')  # 'c' para la prueba con constante
-    print('Estadística KPSS:', resultado[0])
-    print('Valor p:', resultado[1])
-    print('Número de lags utilizados:', resultado[2])
+# Función para comprobar la estacionariedad
+def test_estacionariedad(serie):
+    resultado = adfuller(serie)
+    print('Estadístico ADF:', resultado[0])
+    print('p-valor:', resultado[1])
     print('Valores críticos:')
-    for key, value in resultado[3].items():
-        print(f'   {key}: {value}')
+    for key, value in resultado[4].items():
+        print(f'\t{key}: {value}')
 
 
-# Verificar estacionaridad y ejecutar ARIMA para cada columna
-for columna in columnas:
-    print(f'\nVisualizando y verificando estacionaridad para la columna: {columna}')
+# Función para optimizar y entrenar el modelo ARIMA
+def optimizar_arima(serie):
+    modelo = auto_arima(serie, start_p=0, max_p=3, start_q=0, max_q=3,
+                        seasonal=True, m=12, trace=True, error_action='ignore',
+                        suppress_warnings=True, stepwise=True)
+    return modelo
 
-    # Visualizar la serie de tiempo
-    plt.figure(figsize=(10, 6))
-    plt.plot(df_completo.index, df_completo[columna], label=f'Datos Reales ({columna})', color='blue')
-    plt.title(f'Serie de Tiempo para {columna}')
+
+# Función para evaluar el modelo ARIMA
+def evaluar_modelo_arima(predicciones, reales):
+    mae = mean_absolute_error(reales, predicciones)
+    mse = mean_squared_error(reales, predicciones)
+    mape = mean_absolute_percentage_error(reales, predicciones)
+    return {"MAE": mae, "MSE": mse, "MAPE": mape}
+
+
+# Iterar sobre cada columna en df_completo
+resultados_evaluacion = {}
+
+for variable in df_completo.columns:
+    print(f'\nEvaluando variable: {variable}')
+
+    # Asegurarse de que los datos son numéricos
+    df_completo[variable] = pd.to_numeric(df_completo[variable], errors='coerce')
+
+    # Paso 1: Comprobar estacionariedad
+    test_estacionariedad(df_completo[variable].dropna())
+
+    # Aplicar diferenciación si es necesario
+    if adfuller(df_completo[variable].dropna())[1] > 0.05:  # Si no es estacionaria
+        df_completo[f'{variable}_diff'] = df_completo[variable].diff().dropna()
+        serie_a_usar = df_completo[f'{variable}_diff'].dropna()
+    else:
+        serie_a_usar = df_completo[variable].dropna()
+
+    # Paso 2: Optimizar y entrenar el modelo ARIMA
+    modelo_arima = optimizar_arima(serie_a_usar)
+    modelo_fit = modelo_arima.fit(serie_a_usar)
+    print(modelo_fit.summary())
+
+    # Paso 3: Obtener y graficar los residuos
+    residuos = modelo_fit.resid()
+    residuos = np.array(residuos)
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(residuos)
+    plt.title(f'Residuos del Modelo ARIMA para {variable}')
     plt.xlabel('Fecha')
-    plt.ylabel(columna)
-    plt.legend()
+    plt.ylabel('Residuos')
+    plt.axhline(0, color='red', linestyle='--')
+    plt.grid()
     plt.show()
 
-    # Verificar estacionaridad
-    verificar_estacionaridad_kpss(df_completo[columna])
+    # Paso 4: Realizar predicciones
+    n_periods = 12
+    predicciones = modelo_fit.predict(n_periods=n_periods)
 
-    try:
-        # Ajustamos el modelo ARIMA para cada columna
-        print(f'Ejecutando ARIMA para la columna: {columna}')
-        mod = ARIMA(df_completo[columna], order=(3, 1, 4))  # Ajustar el orden según convenga
-        res = mod.fit()
+    # Obtener fechas para el futuro y valores reales
+    fechas_futuras = pd.date_range(start=df_completo.index[-1] + pd.DateOffset(months=1), periods=n_periods, freq='MS')
+    predicciones_df = pd.DataFrame(predicciones, index=fechas_futuras, columns=['Predicción'])
+    valores_reales = df_completo[variable][-n_periods:]
 
-        # Mostramos el resumen del modelo
-        print(res.summary())
+    # Paso 5: Evaluar el modelo y almacenar las métricas
+    metricas = evaluar_modelo_arima(predicciones, valores_reales)
+    resultados_evaluacion[variable] = metricas
+    print(f"Evaluación para {variable}: {metricas}")
 
-        # Predicción para los próximos 12 periodos
-        pred = res.predict(start=len(df_completo), end=len(df_completo) + 11,
-                           typ='levels')  # Cambiado a 11 porque queremos 12 predicciones
+    # Paso 6: Graficar las predicciones junto con la serie original
+    plt.figure(figsize=(12, 6))
+    plt.plot(df_completo[variable], label='Datos Históricos')
+    plt.plot(predicciones_df, label='Predicciones', marker='o', color='orange')
+    plt.title(f'Predicciones del Modelo ARIMA para {variable}')
+    plt.xlabel('Fecha')
+    plt.ylabel(variable)
+    plt.legend()
+    plt.grid()
+    plt.show()
 
-        # Visualización de las predicciones
-        plt.figure(figsize=(10, 6))
-        plt.plot(df_completo.index, df_completo[columna], label=f'Datos Reales ({columna})', color='blue')
-        plt.plot(pd.date_range(df_completo.index[-1], periods=12, freq='MS'), pred, label='Predicción', color='red')
-        plt.title(f'Predicción con ARIMA para {columna}')
-        plt.xlabel('Fecha')
-        plt.ylabel(columna)
-        plt.legend()
-        plt.show()
+# Mostrar resultados finales de evaluación
+print("\nResumen de Evaluación para todas las variables:")
+for variable, metricas in resultados_evaluacion.items():
+    print(f"\nVariable: {variable}")
+    for nombre_metrica, valor in metricas.items():
+        print(f"  {nombre_metrica}: {valor:.4f}")
 
-    except Exception as e:
-        print(f'Error al procesar la columna {columna}: {e}')
+

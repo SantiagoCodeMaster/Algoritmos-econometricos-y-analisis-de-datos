@@ -16,6 +16,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LassoCV, Lasso
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error, r2_score
+from pmdarima import auto_arima
+from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -161,7 +163,6 @@ df_completo.set_index('fecha', inplace=True)
 # Asegúrate de que los datos son de frecuencia mensual (MS) o la que necesites
 df_completo = df_completo.asfreq('MS')
 
-
 # Función para comprobar la estacionariedad
 def test_estacionariedad(serie):
     resultado = adfuller(serie)
@@ -171,55 +172,103 @@ def test_estacionariedad(serie):
     for key, value in resultado[4].items():
         print(f'\t{key}: {value}')
 
+# Función para optimizar y entrenar el modelo ARIMA
+def optimizar_arima(serie):
+    modelo = auto_arima(serie, start_p=0, max_p=3, start_q=0, max_q=3,
+                        seasonal=True, m=12, trace=True, error_action='ignore',
+                        suppress_warnings=True, stepwise=True)
+    return modelo
 
-# Iterar sobre cada columna en df_completo (exceptuando la columna de fecha)
+# Función para evaluar el modelo ARIMA
+def evaluar_modelo_arima(predicciones, reales):
+    mae = mean_absolute_error(reales, predicciones)
+    mse = mean_squared_error(reales, predicciones)
+    mape = mean_absolute_percentage_error(reales, predicciones)
+    return {"MAE": mae, "MSE": mse, "MAPE": mape}
+
+# Supongamos que df_completo es tu DataFrame con las series de tiempo
+# Aquí empieza la evaluación
+resultados_evaluacion = {}
+residuos_dict = {}  # Para guardar los residuos de cada variable
+
 for variable in df_completo.columns:
     print(f'\nEvaluando variable: {variable}')
 
-    # Convertir a numérico, forzando errores a NaN
+    # Asegurarse de que los datos son numéricos
     df_completo[variable] = pd.to_numeric(df_completo[variable], errors='coerce')
 
     # Paso 1: Comprobar estacionariedad
     test_estacionariedad(df_completo[variable].dropna())
 
-    # Si la serie no es estacionaria, aplica transformaciones
-    # Por ejemplo, puedes diferenciarla
-    df_completo[f'{variable}_diff'] = df_completo[variable].diff().dropna()
+    # Aplicar diferenciación si es necesario
+    if adfuller(df_completo[variable].dropna())[1] > 0.05:  # Si no es estacionaria
+        df_completo[f'{variable}_diff'] = df_completo[variable].diff().dropna()
+        serie_a_usar = df_completo[f'{variable}_diff'].dropna()
+    else:
+        serie_a_usar = df_completo[variable].dropna()
 
-    # Ajustar el modelo ARIMA (p, d, q) - selecciona p, d, q basado en tu análisis
-    modelo = ARIMA(df_completo[variable].dropna(), order=(1, 1, 1))  # Cambia los parámetros si es necesario
-    modelo_fit = modelo.fit()
-
-    # Mostrar el resumen del modelo
+    # Paso 2: Optimizar y entrenar el modelo ARIMA
+    modelo_arima = optimizar_arima(serie_a_usar)
+    modelo_fit = modelo_arima.fit(serie_a_usar)
     print(modelo_fit.summary())
 
-    # Paso 3: Obtener residuos
-    residuos = modelo_fit.resid
+    # Paso 3: Obtener y graficar los residuos
+    residuos = modelo_fit.resid()
+    residuos = np.array(residuos)
+    residuos_dict[variable] = residuos
 
-    # Graficar los residuos
-    plt.figure(figsize=(12, 6))
-    plt.plot(residuos)
-    plt.title(f'Residuos del Modelo ARIMA para {variable}')
-    plt.xlabel('Fecha')
-    plt.ylabel('Residuos')
-    plt.axhline(0, color='red', linestyle='--')
-    plt.grid()
-    plt.show()
+    # Paso 4: Realizar predicciones
+    n_periods = 12
+    predicciones = modelo_fit.predict(n_periods=n_periods)
 
-    # Realizar predicciones
-    predicciones = modelo_fit.forecast(steps=12)
-
-    # Crear un DataFrame para las predicciones
-    fechas_futuras = pd.date_range(start=df_completo.index[-1] + pd.DateOffset(months=1), periods=12, freq='MS')
+    # Obtener fechas para el futuro y valores reales
+    fechas_futuras = pd.date_range(start=df_completo.index[-1] + pd.DateOffset(months=1), periods=n_periods, freq='MS')
     predicciones_df = pd.DataFrame(predicciones, index=fechas_futuras, columns=['Predicción'])
+    valores_reales = df_completo[variable][-n_periods:]
 
-    # Graficar las predicciones junto con la serie original
-    plt.figure(figsize=(12, 6))
-    plt.plot(df_completo[variable], label='Datos Históricos')
-    plt.plot(predicciones_df, label='Predicciones', marker='o', color='orange')
-    plt.title(f'Predicciones del Modelo ARIMA para {variable}')
-    plt.xlabel('Fecha')
-    plt.ylabel(variable)
-    plt.legend()
-    plt.grid()
-    plt.show()
+    # Paso 5: Evaluar el modelo y almacenar las métricas
+    metricas = evaluar_modelo_arima(predicciones, valores_reales)
+    resultados_evaluacion[variable] = metricas
+    print(f"Evaluación para {variable}: {metricas}")
+
+# Seleccionar variables con mejor desempeño
+umbral_mae = 0.5  # Ajusta este umbral según tu contexto
+variables_seleccionadas = [var for var, metrics in resultados_evaluacion.items() if metrics['MAE'] < umbral_mae]
+
+print("\nVariables Seleccionadas basadas en el MAE:")
+print(variables_seleccionadas)
+
+# Crear el DataFrame df_definitivo con las variables seleccionadas
+df_definitivo = df_completo[variables_seleccionadas].copy()
+print(df_definitivo)
+
+# Revisar longitudes de los residuos
+longitudes_residuos = {var: len(residuos) for var, residuos in residuos_dict.items()}
+print("Longitudes de los residuos para cada variable:")
+print(longitudes_residuos)
+
+# Opcional: Para hacer que todas las longitudes sean iguales
+# Encuentra la longitud mínima
+min_length = min(longitudes_residuos.values())
+
+# Recortar o rellenar los residuos
+for var in residuos_dict.keys():
+    if len(residuos_dict[var]) > min_length:
+        residuos_dict[var] = residuos_dict[var][:min_length]  # Recortar
+    elif len(residuos_dict[var]) < min_length:
+        # Rellenar con NaN (opcional)
+        residuos_dict[var] = np.pad(residuos_dict[var], (0, min_length - len(residuos_dict[var])), 'constant', constant_values=np.nan)
+
+# Crear el DataFrame de residuos
+residuos_df = pd.DataFrame(residuos_dict)
+
+# Mostrar el DataFrame de residuos
+print("DataFrame de Residuos:")
+print(residuos_df)
+
+
+
+
+
+
+
