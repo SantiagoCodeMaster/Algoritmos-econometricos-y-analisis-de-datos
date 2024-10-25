@@ -87,20 +87,7 @@ def to_numeric(series):
 # Aplicamos la conversión a las columnas numéricas
 df_completo= df_completo.copy()  # Hacemos una copia del DataFrame original para limpiar
 df_completo[numeric_columns] = df_completo[numeric_columns].apply(to_numeric)
-print(df_completo.dtypes)
 
-# Imprimir el DataFrame combinado
-print("DataFrame combinado:")
-print(df_completo)
-
-# Ver las primeras filas del DataFrame
-print(df_completo.head())
-
-# Ver la información del DataFrame
-print(df_completo.info())
-
-# Ver estadísticas descriptivas
-print(df_completo.describe())
 
 
 # Lista de columnas sin las que contienen "id"
