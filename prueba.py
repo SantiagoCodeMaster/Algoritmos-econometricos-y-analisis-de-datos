@@ -240,12 +240,12 @@ print(variables_seleccionadas)
 
 # Crear el DataFrame df_definitivo con las variables seleccionadas
 df_definitivo = df_completo[variables_seleccionadas].copy()
-print(df_definitivo)
+#print(df_definitivo)
 
 # Revisar longitudes de los residuos
 longitudes_residuos = {var: len(residuos) for var, residuos in residuos_dict.items()}
-print("Longitudes de los residuos para cada variable:")
-print(longitudes_residuos)
+#print("Longitudes de los residuos para cada variable:")
+#print(longitudes_residuos)
 
 # Opcional: Para hacer que todas las longitudes sean iguales
 # Encuentra la longitud mínima
@@ -263,10 +263,14 @@ for var in residuos_dict.keys():
 residuos_df = pd.DataFrame(residuos_dict)
 
 # Mostrar el DataFrame de residuos
-print("DataFrame de Residuos:")
-print(residuos_df)
+#print("DataFrame de Residuos:")
+#print(residuos_df)
 
+# Guardar df_definitivo
+df_definitivo.to_csv("df_definitivo.csv", index=True)
 
+# Guardar residuos_df
+residuos_df.to_csv("residuos_df.csv", index=True)
 
 
 
