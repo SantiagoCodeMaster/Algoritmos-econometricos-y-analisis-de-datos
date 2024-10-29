@@ -219,5 +219,51 @@ rnn_model.evaluate_and_correct_model() #Paso 5 : verificar el sobreajuste
 # Realizar predicciones y desnormalizarlas
 y_pred = rnn_model.predict()
 y_pred_rescaled, y_rescaled = rnn_model.inverse_transform_predictions(y_pred)
+
+# Imprimir predicciones y variables objetivo
 print("Predicciones desnormalizadas:", y_pred_rescaled)
 print("Valores reales desnormalizados:", y_rescaled)
+print("Variables que el modelo está prediciendo:", residuos_df.columns.tolist())
+
+
+# Convertir `y_pred_rescaled` a un DataFrame y asignar los nombres de las variables
+df_predicciones = pd.DataFrame(data=y_pred_rescaled, columns=residuos_df.columns)
+
+# Limitar el número de decimales a 2
+df_predicciones = df_predicciones.round(3)
+
+
+# Ajustamos las opciones de visualización
+pd.set_option('display.max_rows', None)  # Muestra todas las filas
+pd.set_option('display.max_columns', None)  # Muestra todas las columnas
+pd.set_option('display.width', None)  # Ajusta el ancho de la salida
+pd.set_option('display.max_colwidth', None)  # Muestra el contenido completo de cada columna
+
+# Obtener la última fecha de los datos originales
+ultima_fecha = df_definitivo.index[-1]
+
+# Asegurarse de que `ultima_fecha` sea un objeto datetime
+if isinstance(ultima_fecha, str):
+    ultima_fecha = pd.to_datetime(ultima_fecha)
+
+# Determinar cuántas predicciones tienes
+num_predicciones = len(df_predicciones)
+
+# Generar las fechas mensuales basadas en la última fecha de los datos originales
+fechas_predicciones = pd.date_range(start=ultima_fecha + pd.DateOffset(months=1), periods=num_predicciones, freq='MS')
+
+# Asignar las fechas generadas como una nueva columna en df_predicciones
+df_predicciones['fecha'] = fechas_predicciones
+
+# Reorganizar el DataFrame para que la fecha esté a la izquierda
+df_predicciones = df_predicciones[['fecha'] + [col for col in df_predicciones.columns if col != 'fecha']]
+
+# Mostrar el DataFrame con las fechas de predicción
+print("Predicciones desnormalizadas con fechas mensuales:\n", df_predicciones)
+
+
+
+
+
+
+
