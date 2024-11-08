@@ -498,6 +498,101 @@ print("Predicciones desnormalizadas con fechas mensuales:\n", df_predicciones)
 
 
 
+import joblib
+import pandas as pd
+import json
+from statsmodels.tsa.arima.model import ARIMA
+from keras.models import load_model
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler
+import os
+
+def cargar_modelos(path_lasso, path_arima):
+    lasso_modelos = {}
+    arima_modelos = {}
+    try:
+        # Cargar modelos Lasso
+        for archivo in os.listdir(path_lasso):
+            if archivo.endswith(".pkl"):
+                variable = archivo.replace(".pkl", "")
+                lasso_modelos[variable] = joblib.load(os.path.join(path_lasso, archivo))
+
+        # Cargar modelos ARIMA
+        for archivo in os.listdir(path_arima):
+            if archivo.endswith(".pkl"):
+                variable = archivo.replace(".pkl", "")
+                with open(os.path.join(path_arima, archivo), "rb") as f:
+                    arima_modelos[variable] = joblib.load(f)
+    except Exception as e:
+        print(f"Error al cargar modelos: {e}")
+    return lasso_modelos, arima_modelos
+
+def predecir_con_modelos(df, lasso_modelos, arima_modelos, rnn_model):
+    predicciones_lasso = {}
+    residuos_arima = {}
+    predicciones_rnn = {}
+
+    try:
+        for variable in df.columns:
+            # Predicción con Lasso
+            if variable in lasso_modelos:
+                predicciones_lasso[variable] = lasso_modelos[variable].predict(df[variable].values.reshape(-1, 1))
+
+            # Predicción con ARIMA
+            if variable in arima_modelos:
+                arima_modelo = arima_modelos[variable]
+                arima_modelo_fit = arima_modelo.fit(df[variable])  # Ajuste para la variable actual
+                residuos_arima[variable] = arima_modelo_fit.resid
+
+                # Preprocesamiento para RNN
+                scaler = MinMaxScaler(feature_range=(0, 1))
+                residuos_arima_scaled = scaler.fit_transform(residuos_arima[variable].values.reshape(-1, 1))
+
+                # Predicción con RNN
+                predicciones_rnn[variable] = rnn_model.predict(residuos_arima_scaled).flatten().tolist()
+
+    except Exception as e:
+        print(f"Error en predicción de modelos: {e}")
+
+    return predicciones_lasso, residuos_arima, predicciones_rnn
+
+def main():
+    # Definir rutas de los modelos y archivo de entrada
+    path_modelos_lasso = "modelos_lasso"
+    path_modelos_arima = "modelos_arima"
+    path_modelo_rnn = "rnn_model.h5"
+    input_file = ""
+
+    # Cargar los modelos entrenados
+    lasso_modelos, arima_modelos = cargar_modelos(path_modelos_lasso, path_modelos_arima)
+    rnn_model = load_model(path_modelo_rnn)
+
+    try:
+        # Cargar los datos de entrada
+        with open(input_file, 'r') as f:
+            data = json.load(f)
+
+        # Convertir los datos en un DataFrame
+        df = pd.DataFrame(data)
+
+        # Predecir con los modelos
+        predicciones_lasso, residuos_arima, predicciones_rnn = predecir_con_modelos(df, lasso_modelos, arima_modelos, rnn_model)
+
+        # Preparar el resultado
+        resultados = {
+            "predicciones_lasso": predicciones_lasso,
+            "residuos_arima": residuos_arima,
+            "predicciones_rnn": predicciones_rnn
+        }
+
+        # Devolver el resultado como JSON
+        print(json.dumps(resultados))
+
+    except Exception as e:
+        print(json.dumps({"error": f"Error en el procesamiento de datos: {e}"}))
+
+if __name__ == "__main__":
+    main()
 
 
 

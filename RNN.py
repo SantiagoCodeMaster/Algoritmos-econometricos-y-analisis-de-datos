@@ -31,6 +31,9 @@ df_definitivo = pd.read_csv("df_definitivo.csv", index_col=0)
 # Cargar residuos_df
 residuos_df = pd.read_csv("residuos_df.csv", index_col=0)
 
+
+
+
 class RNNModel:
     def __init__(self, df_definitivo, residuos_df, window_size=12, epochs=50, batch_size=16):
         # Inicialización de los datos y parámetros
@@ -262,6 +265,10 @@ df_predicciones = df_predicciones[['fecha'] + [col for col in df_predicciones.co
 print("Predicciones desnormalizadas con fechas mensuales:\n", df_predicciones)
 
 
+# Exportar df_predicciones a un archivo Excel
+#df_predicciones.to_excel("predicciones_con_fechas.xlsx", index=False)
+
+#print("Archivo exportado exitosamente como 'predicciones_con_fechas.xlsx'")
 
 
 
