@@ -93,6 +93,8 @@ df_completo = df_completo.drop(columns=['id_empresa_ef', 'id_empresa_p', 'id_emp
 date_columns = df_completo.select_dtypes(include=['datetime']).columns
 df_sin_fechas = df_completo.drop(columns=date_columns)
 
+print(df_completo.columns)
+
 # Inicializar un diccionario para almacenar los resultados
 resultados = {}
 
