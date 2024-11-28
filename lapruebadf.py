@@ -127,10 +127,10 @@ def ejecutar_algoritmo():
         residuos_arima = []
 
         for columna in df_lasso.columns:
-            print(f"Columna: {columna}")
-            print(f"Número de observaciones: {df_lasso[columna].dropna().shape[0]}")
-            print(f"Valores únicos: {df_lasso[columna].nunique()}")
-            print(f"Primeros valores:\n{df_lasso[columna].head()}\n")
+            #print(f"Columna: {columna}")
+           # print(f"Número de observaciones: {df_lasso[columna].dropna().shape[0]}")
+           # print(f"Valores únicos: {df_lasso[columna].nunique()}")
+            #print(f"Primeros valores:\n{df_lasso[columna].head()}\n")
 
             # Conversión de datos a numéricos
             df_lasso[columna] = pd.to_numeric(df_lasso[columna], errors='coerce')
@@ -169,26 +169,68 @@ def ejecutar_algoritmo():
                 except Exception as e:
                     print(f"Hubo un error al ajustar ARIMA para la columna '{columna}': {e}")
 
-
         # Convertir residuos a un arreglo de Numpy (transponer para que tenga la forma correcta)
         residuos_arima = np.array(residuos_arima).T  # Transponer para alinear los residuos con el df_lasso
 
         # Concatenar los residuos con df_lasso (asegurándonos de que tengan las mismas dimensiones)
         df_combinado = np.concatenate([residuos_arima, df_lasso.values], axis=1)
-        # Preparar los datos para la RNN
-        # Aquí estamos utilizando df_combinado como entrada tanto para las características como para el objetivo
-        # El generador de series de tiempo puede tomar estos datos para crear secuencias de longitud 10
-        generador_rnn = TimeseriesGenerator(df_combinado, df_combinado, length=10, batch_size=32)
+
+        # Validar las dimensiones de df_combinado
+        print(f"Forma original de df_combinado: {df_combinado.shape}")
+
+        # Ajustar las dimensiones del conjunto de datos
+        num_features_esperado = 10  # Número de características esperadas por el modelo
+        if df_combinado.shape[1] > num_features_esperado:
+            # Reducir el número de columnas
+            df_combinado = df_combinado[:, :num_features_esperado]
+        elif df_combinado.shape[1] < num_features_esperado:
+            # Expandir el número de columnas añadiendo ceros
+            num_faltantes = num_features_esperado - df_combinado.shape[1]
+            columnas_extra = np.zeros((df_combinado.shape[0], num_faltantes))
+            df_combinado = np.concatenate([df_combinado, columnas_extra], axis=1)
+
+        print(f"Forma ajustada de df_combinado: {df_combinado.shape}")
+
+        # Validar si los datos son suficientes para crear un generador de series de tiempo
+        timesteps = 12  # Longitud inicial de las secuencias esperada por el modelo
+        batch_size = 32  # Tamaño del lote
+
+        if df_combinado.shape[0] <= timesteps:
+            print(
+                f"Advertencia: No hay suficientes datos para timesteps={timesteps}. Ajustando timesteps a {df_combinado.shape[0] - 1}.")
+            timesteps = df_combinado.shape[0] - 1
+
+        # Crear el generador de series de tiempo
+        try:
+            generador_rnn = TimeseriesGenerator(df_combinado, df_combinado, length=timesteps, batch_size=batch_size)
+            print(f"Generador creado con timesteps={timesteps}.")
+        except Exception as e:
+            print(f"Error al crear el generador de series de tiempo: {e}")
 
         # Cargar el modelo de la RNN
         modelo_rnn = load_model(path_modelo_rnn)
 
-        try:
-         # Realizar las predicciones con la RNN
-         predicciones_rnn = modelo_rnn.predict(generador_rnn)
-        except  Exception as e:
-            print(f"error grave en : {e}")
+        # Validar la forma de entrada esperada por el modelo
+        print(f"Forma de entrada esperada por el modelo: {modelo_rnn.input_shape}")
 
+        # Validar compatibilidad entre las formas del generador y el modelo
+        try:
+            input_shape_generado = generador_rnn[0][0].shape[1:]  # Ignorar batch_size
+        except Exception as e:
+            print(f"Error al acceder a los datos generados: {e}")
+
+        input_shape_esperado = modelo_rnn.input_shape[1:]  # Ignorar batch_size
+        if input_shape_generado != input_shape_esperado:
+            print(
+                f"Incompatibilidad de formas: Generado {input_shape_generado} vs Esperado {input_shape_esperado}"
+            )
+
+        # Realizar las predicciones con la RNN
+        try:
+            predicciones_rnn = modelo_rnn.predict(generador_rnn)
+            print(f"Predicciones exitosas. Forma: {predicciones_rnn.shape}")
+        except Exception as e:
+            raise RuntimeError(f"Error grave al realizar predicciones: {e}")
 
         # Retornar las predicciones
         return jsonify({
