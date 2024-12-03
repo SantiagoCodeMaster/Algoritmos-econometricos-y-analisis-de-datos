@@ -229,16 +229,18 @@ def ejecutar_algoritmo():
         try:
             predicciones_rnn = modelo_rnn.predict(generador_rnn)
             print(f"Predicciones exitosas. Forma: {predicciones_rnn.shape}")
+            print(predicciones_rnn)
         except Exception as e:
             raise RuntimeError(f"Error grave al realizar predicciones: {e}")
 
         # Retornar las predicciones
         return jsonify({
-            "mensaje": "Algoritmo ejecutado correctamente",
             "predicciones": predicciones_rnn.tolist()
         })
+
     except Exception as e:
         return jsonify({"mensaje": f"Error: {str(e)}"}), 400
+
 
 if __name__ == '__main__':
     app.run(debug=True)
